@@ -1,0 +1,27 @@
+# Large data files
+DATA/CIC_IoMT_2024_WiFi_MQTT_test.csv
+DATA/archive.zip
+DATA/CIC_IoMT_2024_WiFi_MQTT_train.csv
+
+# Model files
+models/best_model_ecu_ioht.pth
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual Environment
+venv/
+env/
+ENV/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs
+logs/
+*.log 

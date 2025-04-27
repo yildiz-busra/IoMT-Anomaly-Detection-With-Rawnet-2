@@ -1,7 +1,5 @@
-# Large data files
-DATA/CIC_IoMT_2024_WiFi_MQTT_test.csv
-DATA/archive.zip
-DATA/CIC_IoMT_2024_WiFi_MQTT_train.csv
+# Data directory
+DATA/
 
 # Model files
 models/best_model_ecu_ioht.pth
@@ -24,4 +22,7 @@ ENV/
 
 # Logs
 logs/
-*.log 
+*.log
+
+# Git LFS
+.gitattributes

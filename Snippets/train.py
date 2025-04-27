@@ -12,18 +12,18 @@ from sklearn.metrics import confusion_matrix, classification_report
 import matplotlib.pyplot as plt
 import seaborn as sns
 
-def plot_confusion_matrix(y_true, y_pred, phase='train', epoch=0):
+def plot_confusion_matrix(y_true, y_pred, phase='train'):
     """Plot confusion matrix and save it"""
     cm = confusion_matrix(y_true, y_pred)
     plt.figure(figsize=(10, 8))
     sns.heatmap(cm, annot=True, fmt='d', cmap='Blues')
-    plt.title(f'Confusion Matrix - {phase} (Epoch {epoch})')
+    plt.title(f'Confusion Matrix - {phase}')
     plt.ylabel('True Label')
     plt.xlabel('Predicted Label')
     
     # Create directory if it doesn't exist
     os.makedirs('confusion_matrices', exist_ok=True)
-    plt.savefig(f'confusion_matrices/{phase}_confusion_matrix_epoch_{epoch}.png')
+    plt.savefig(f'confusion_matrices/{phase}_confusion_matrix_final.png')
     plt.close()
     
     # Print classification report
@@ -32,7 +32,7 @@ def plot_confusion_matrix(y_true, y_pred, phase='train', epoch=0):
     
     return cm
 
-def train(model, train_loader, optimizer, criterion, device, epoch):
+def train(model, train_loader, optimizer, criterion, device):
     model.train()
     running_loss = 0.0
     correct = 0
@@ -62,12 +62,9 @@ def train(model, train_loader, optimizer, criterion, device, epoch):
                   f'Loss: {loss.item():.4f}, '
                   f'Acc: {100.*correct/total:.2f}%')
     
-    # Plot confusion matrix
-    cm = plot_confusion_matrix(all_targets, all_preds, 'train', epoch)
-    
-    return running_loss / len(train_loader), 100. * correct / total
+    return running_loss / len(train_loader), 100. * correct / total, all_preds, all_targets
 
-def validate(model, val_loader, criterion, device, epoch):
+def validate(model, val_loader, criterion, device):
     model.eval()
     running_loss = 0.0
     correct = 0
@@ -90,14 +87,39 @@ def validate(model, val_loader, criterion, device, epoch):
             all_preds.extend(predicted.cpu().numpy())
             all_targets.extend(target.cpu().numpy())
     
-    # Plot confusion matrix
-    cm = plot_confusion_matrix(all_targets, all_preds, 'validation', epoch)
+    return running_loss / len(val_loader), 100. * correct / total, all_preds, all_targets
+
+def test(model, test_loader, criterion, device):
+    model.eval()
+    running_loss = 0.0
+    correct = 0
+    total = 0
+    all_preds = []
+    all_targets = []
     
-    return running_loss / len(val_loader), 100. * correct / total
+    with torch.no_grad():
+        for data, target, _ in test_loader:  # Ignore meta
+            data, target = data.to(device), target.to(device)
+            output = model(data)
+            loss = criterion(output, target)
+            
+            running_loss += loss.item()
+            _, predicted = output.max(1)
+            total += target.size(0)
+            correct += predicted.eq(target).sum().item()
+            
+            # Store predictions and targets for confusion matrix
+            all_preds.extend(predicted.cpu().numpy())
+            all_targets.extend(target.cpu().numpy())
+    
+    # Plot final test confusion matrix
+    plot_confusion_matrix(all_targets, all_preds, 'test')
+    
+    return running_loss / len(test_loader), 100. * correct / total
 
 def main():
     # Load configuration
-    with open('Snippets/model_config_network.yaml', 'r') as f:
+    with open('snippets/model_config_network.yaml', 'r') as f:
         config = yaml.safe_load(f)
     
     # Set device
@@ -115,10 +137,15 @@ def main():
         is_train=True
     )
     
-    # Split dataset into train and validation
+    # Split dataset into train (80%) and test (20%)
     train_size = int(0.8 * len(dataset))
-    val_size = len(dataset) - train_size
-    train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
+    test_size = len(dataset) - train_size
+    train_dataset, test_dataset = random_split(dataset, [train_size, test_size])
+    
+    # Split train dataset into train (80%) and validation (20%)
+    train_size = int(0.8 * len(train_dataset))
+    val_size = len(train_dataset) - train_size
+    train_dataset, val_dataset = random_split(train_dataset, [train_size, val_size])
     
     # Create data loaders with smaller batch size for ECU_IoHT dataset
     train_loader = DataLoader(
@@ -129,6 +156,12 @@ def main():
     
     val_loader = DataLoader(
         val_dataset,
+        batch_size=16,  # Smaller batch size
+        shuffle=False
+    )
+    
+    test_loader = DataLoader(
+        test_dataset,
         batch_size=16,  # Smaller batch size
         shuffle=False
     )
@@ -159,16 +192,17 @@ def main():
     # Training loop
     best_val_loss = float('inf')
     early_stopping_counter = 0
+    best_model_state = None
     
     print("Starting training...")
     for epoch in range(config['nb_epochs']):
         print(f"\nEpoch {epoch+1}/{config['nb_epochs']}:")
         
         # Train
-        train_loss, train_acc = train(model, train_loader, optimizer, criterion, device, epoch)
+        train_loss, train_acc, train_preds, train_targets = train(model, train_loader, optimizer, criterion, device)
         
         # Validate
-        val_loss, val_acc = validate(model, val_loader, criterion, device, epoch)
+        val_loss, val_acc, val_preds, val_targets = validate(model, val_loader, criterion, device)
         
         # Log metrics
         writer.add_scalar('Loss/train', train_loss, epoch)
@@ -182,6 +216,7 @@ def main():
         # Save best model
         if val_loss < best_val_loss:
             best_val_loss = val_loss
+            best_model_state = model.state_dict()
             torch.save(model.state_dict(), 'models/best_model_ecu_ioht.pth')
             early_stopping_counter = 0
         else:
@@ -191,6 +226,15 @@ def main():
         if early_stopping_counter >= config['early_stopping']:
             print(f'Early stopping triggered after {epoch+1} epochs')
             break
+    
+    # Plot final confusion matrices for train and validation
+    plot_confusion_matrix(train_targets, train_preds, 'train')
+    plot_confusion_matrix(val_targets, val_preds, 'validation')
+    
+    # Load best model and test
+    model.load_state_dict(best_model_state)
+    test_loss, test_acc = test(model, test_loader, criterion, device)
+    print(f'Test Loss: {test_loss:.4f}, Test Acc: {test_acc:.2f}%')
     
     writer.close()
     print("Training completed!")

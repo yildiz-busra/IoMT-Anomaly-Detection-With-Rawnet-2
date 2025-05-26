@@ -40,8 +40,9 @@ def train(model, train_loader, optimizer, criterion, device):
     all_preds = []
     all_targets = []
     
-    for batch_idx, (data, target, _) in enumerate(train_loader):  # Ignore meta
+    for batch_idx, (data, target) in enumerate(train_loader):
         data, target = data.to(device), target.to(device)
+        data = data.unsqueeze(1)  # Add channel dimension
         optimizer.zero_grad()
         output = model(data)
         loss = criterion(output, target)
@@ -53,16 +54,16 @@ def train(model, train_loader, optimizer, criterion, device):
         total += target.size(0)
         correct += predicted.eq(target).sum().item()
         
-        # Store predictions and targets for confusion matrix
         all_preds.extend(predicted.cpu().numpy())
         all_targets.extend(target.cpu().numpy())
         
-        if batch_idx % 10 == 0:  # Print more frequently for smaller dataset
-            print(f'Batch [{batch_idx}/{len(train_loader)}], '
-                  f'Loss: {loss.item():.4f}, '
-                  f'Acc: {100.*correct/total:.2f}%')
+        if batch_idx % 10 == 0:
+            print(f'Batch: {batch_idx}, Loss: {loss.item():.4f}, Acc: {100.*correct/total:.2f}%')
     
-    return running_loss / len(train_loader), 100. * correct / total, all_preds, all_targets
+    epoch_loss = running_loss / len(train_loader)
+    epoch_acc = 100. * correct / total
+    
+    return epoch_loss, epoch_acc, all_preds, all_targets
 
 def validate(model, val_loader, criterion, device):
     model.eval()
@@ -73,8 +74,9 @@ def validate(model, val_loader, criterion, device):
     all_targets = []
     
     with torch.no_grad():
-        for data, target, _ in val_loader:  # Ignore meta
+        for data, target in val_loader:
             data, target = data.to(device), target.to(device)
+            data = data.unsqueeze(1)  # Add channel dimension
             output = model(data)
             loss = criterion(output, target)
             
@@ -83,161 +85,112 @@ def validate(model, val_loader, criterion, device):
             total += target.size(0)
             correct += predicted.eq(target).sum().item()
             
-            # Store predictions and targets for confusion matrix
             all_preds.extend(predicted.cpu().numpy())
             all_targets.extend(target.cpu().numpy())
     
-    return running_loss / len(val_loader), 100. * correct / total, all_preds, all_targets
-
-def test(model, test_loader, criterion, device):
-    model.eval()
-    running_loss = 0.0
-    correct = 0
-    total = 0
-    all_preds = []
-    all_targets = []
+    epoch_loss = running_loss / len(val_loader)
+    epoch_acc = 100. * correct / total
     
-    with torch.no_grad():
-        for data, target, _ in test_loader:  # Ignore meta
-            data, target = data.to(device), target.to(device)
-            output = model(data)
-            loss = criterion(output, target)
-            
-            running_loss += loss.item()
-            _, predicted = output.max(1)
-            total += target.size(0)
-            correct += predicted.eq(target).sum().item()
-            
-            # Store predictions and targets for confusion matrix
-            all_preds.extend(predicted.cpu().numpy())
-            all_targets.extend(target.cpu().numpy())
-    
-    # Plot final test confusion matrix
-    plot_confusion_matrix(all_targets, all_preds, 'test')
-    
-    return running_loss / len(test_loader), 100. * correct / total
+    return epoch_loss, epoch_acc, all_preds, all_targets
 
 def main():
     # Load configuration
-    with open('snippets/model_config_network.yaml', 'r') as f:
+    with open('model_config_network.yaml', 'r') as f:
         config = yaml.safe_load(f)
     
     # Set device
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"Using device: {device}")
     
-    # Create model
-    model = NetworkAnomalyDetector(config).to(device)
-    print("Model created successfully")
-    
     # Create dataset
     dataset = NetworkPacketDataset(
-        data_path='DATA/ECU_IoHT.xlsx',
-        transform=None,
+        data_path='..\DATA\wustl-ehms-2020_with_attacks_categories.csv',
         is_train=True
     )
     
-    # Split dataset into train (80%) and test (20%)
+    # Split dataset
     train_size = int(0.8 * len(dataset))
     test_size = len(dataset) - train_size
-    train_dataset, test_dataset = random_split(dataset, [train_size, test_size])
     
-    # Split train dataset into train (80%) and validation (20%)
-    train_size = int(0.8 * len(train_dataset))
-    val_size = len(train_dataset) - train_size
-    train_dataset, val_dataset = random_split(train_dataset, [train_size, val_size])
-    
-    # Create data loaders with smaller batch size for ECU_IoHT dataset
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=16,  # Smaller batch size
-        shuffle=True
+    train_dataset, test_dataset = random_split(
+        dataset, [train_size, test_size]
     )
     
-    val_loader = DataLoader(
-        val_dataset,
-        batch_size=16,  # Smaller batch size
-        shuffle=False
-    )
+    # Create data loaders
+    train_loader = DataLoader(train_dataset, batch_size=config['batch_size'], shuffle=True)
+    test_loader = DataLoader(test_dataset, batch_size=config['batch_size'])
     
-    test_loader = DataLoader(
-        test_dataset,
-        batch_size=16,  # Smaller batch size
-        shuffle=False
-    )
+    # Create model
+    model = NetworkAnomalyDetector(config).to(device)
     
-    # Create optimizer and loss function
+    # Loss function and optimizer
+    criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(
         model.parameters(),
         lr=config['lr'],
         weight_decay=config['weight_decay']
     )
     
-    # Use weighted cross entropy loss to handle class imbalance
-    num_samples = len(train_dataset)
-    class_counts = [
-        sum(1 for _, label, _ in train_dataset if label == 0),
-        sum(1 for _, label, _ in train_dataset if label == 1)
-    ]
-    weights = torch.FloatTensor([num_samples / (2 * count) for count in class_counts]).to(device)
-    criterion = nn.CrossEntropyLoss(weight=weights)
-    
-    # Create tensorboard writer
-    writer = SummaryWriter('logs/training_ecu_ioht')
-    
-    # Create models directory if it doesn't exist
-    if not os.path.exists('models'):
-        os.makedirs('models')
-    
     # Training loop
-    best_val_loss = float('inf')
+    best_val_acc = 0
     early_stopping_counter = 0
-    best_model_state = None
+    train_losses = []
+    val_losses = []
+    test_losses = []
     
-    print("Starting training...")
     for epoch in range(config['nb_epochs']):
-        print(f"\nEpoch {epoch+1}/{config['nb_epochs']}:")
+        print(f"\nEpoch {epoch+1}/{config['nb_epochs']}")
         
         # Train
-        train_loss, train_acc, train_preds, train_targets = train(model, train_loader, optimizer, criterion, device)
+        train_loss, train_acc, train_preds, train_targets = train(
+            model, train_loader, optimizer, criterion, device
+        )
+        train_losses.append(train_loss)
         
         # Validate
-        val_loss, val_acc, val_preds, val_targets = validate(model, val_loader, criterion, device)
-        
-        # Log metrics
-        writer.add_scalar('Loss/train', train_loss, epoch)
-        writer.add_scalar('Loss/val', val_loss, epoch)
-        writer.add_scalar('Accuracy/train', train_acc, epoch)
-        writer.add_scalar('Accuracy/val', val_acc, epoch)
+        val_loss, val_acc, val_preds, val_targets = validate(
+            model, test_loader, criterion, device
+        )
+        val_losses.append(val_loss)
         
         print(f'Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.2f}%')
         print(f'Val Loss: {val_loss:.4f}, Val Acc: {val_acc:.2f}%')
         
-        # Save best model
-        if val_loss < best_val_loss:
-            best_val_loss = val_loss
-            best_model_state = model.state_dict()
-            torch.save(model.state_dict(), 'models/best_model_ecu_ioht.pth')
-            early_stopping_counter = 0
-        else:
-            early_stopping_counter += 1
+        # Plot confusion matrices
+        plot_confusion_matrix(train_targets, train_preds, 'train')
+        plot_confusion_matrix(val_targets, val_preds, 'validation')
         
         # Early stopping
-        if early_stopping_counter >= config['early_stopping']:
-            print(f'Early stopping triggered after {epoch+1} epochs')
-            break
+        if val_acc > best_val_acc:
+            best_val_acc = val_acc
+            early_stopping_counter = 0
+            # Save best model
+            torch.save(model.state_dict(), 'models/best_model_wustl.pth')
+        else:
+            early_stopping_counter += 1
+            if early_stopping_counter >= config['early_stopping']:
+                print("Early stopping triggered")
+                break
     
-    # Plot final confusion matrices for train and validation
-    plot_confusion_matrix(train_targets, train_preds, 'train')
-    plot_confusion_matrix(val_targets, val_preds, 'validation')
+    # Test best model
+    model.load_state_dict(torch.load('models/best_model_wustl.pth'))
+    test_loss, test_acc, test_preds, test_targets = validate(
+        model, test_loader, criterion, device
+    )
+    test_losses.append(test_loss)
+    print(f'\nTest Loss: {test_loss:.4f}, Test Acc: {test_acc:.2f}%')
+    plot_confusion_matrix(test_targets, test_preds, 'test')
     
-    # Load best model and test
-    model.load_state_dict(best_model_state)
-    test_loss, test_acc = test(model, test_loader, criterion, device)
-    print(f'Test Loss: {test_loss:.4f}, Test Acc: {test_acc:.2f}%')
-    
-    writer.close()
-    print("Training completed!")
+    # Plot loss curves
+    plt.figure(figsize=(10, 5))
+    plt.plot(train_losses, label='Training Loss')
+    plt.plot(val_losses, label='Validation Loss')
+    plt.xlabel('Epochs')
+    plt.ylabel('Loss')
+    plt.title('Loss Curves')
+    plt.legend()
+    plt.savefig('loss_curves.png')
+    plt.close()
 
 if __name__ == '__main__':
     main() 

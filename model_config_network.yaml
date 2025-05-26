@@ -1,0 +1,22 @@
+# RawNet model configuration for WUSTL-EHMS network packet anomaly detection
+
+# Training parameters
+optimizer: 'adam'
+lr: 0.0001
+weight_decay: 0.0001
+nb_epochs: 50
+batch_size: 256
+early_stopping: 10
+
+# Model architecture
+in_channels: 1
+first_conv: 512
+filts: [[64, 64], [128, 128], [256, 256]]
+gru_node: 512
+nb_gru_layer: 2
+nb_fc_node: 512
+nb_classes: 4  # Number of attack categories in WUSTL-EHMS dataset
+
+# Data parameters
+max_packet_length: 1500  # Maximum Ethernet packet size
+sample_rate: 1000  # Sampling rate for network packets 

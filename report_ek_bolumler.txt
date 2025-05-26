@@ -1,0 +1,42 @@
+1. Model Değişiklikleri ve İlk Eğitim Sonuçları
+
+Bu projede, orijinal RawNet-2 mimarisi ağ trafiği anomali tespiti için yeniden düzenlenmiştir. Orijinal modelde ses işleme için kullanılan SincConv katmanları kaldırılmış, yerine ağ paketlerinden gelen özellikleri işleyebilecek PacketConv ve PacketBlock katmanları eklenmiştir. Modelin giriş katmanları, BatchNorm ve LeakyReLU ile güçlendirilmiş, artık ağ paketlerinin sayısal ve kategorik özelliklerini işleyebilmektedir. Ayrıca, veri kümesindeki protokol, kaynak, hedef gibi kategorik alanlar LabelEncoder ile sayısal hale getirilmiştir. Modelin son katmanları ve eğitim parametreleri de ağ trafiği için optimize edilmiştir.
+
+Eğitimde kullanılan veri seti, toplam 111.207 örnekten oluşmaktadır. Bu örnekler %64 eğitim, %16 doğrulama ve %20 test olarak ayrılmıştır. Sınıf dağılımları ve karışıklık matrisleri aşağıda verilmiştir:
+
+Eğitim (train) karışıklık matrisi:
+|           | Tahmin 0 | Tahmin 1 |
+|-----------|----------|----------|
+| Gerçek 0  | 14892    | 23       |
+| Gerçek 1  | 735      | 55592    |
+
+Doğrulama (val) karışıklık matrisi:
+|           | Tahmin 0 | Tahmin 1 |
+|-----------|----------|----------|
+| Gerçek 0  | 3358     | 16       |
+| Gerçek 1  | 165      | 13852    |
+
+Test karışıklık matrisi:
+|           | Tahmin 0 | Tahmin 1 |
+|-----------|----------|----------|
+| Gerçek 0  | 6808     | 24       |
+| Gerçek 1  | 181      | 17779    |
+
+Test seti için hesaplanan metrikler:
+- Doğruluk (Accuracy): %99.17
+- Kesinlik (Precision): %99.87
+- F1 Skoru: %99.43
+
+Bu sonuçlar, modelin ağ trafiği üzerinde yüksek doğruluk ve kesinlik ile çalıştığını göstermektedir. Model, saldırı ve saldırı olmayan paketleri ayırt etmede oldukça başarılıdır.
+
+2. İyileştirme Önerileri
+
+Mevcut model, belirli bir veri kümesi ve ön işleme adımları için optimize edilmiştir. Farklı veri kümeleri veya gerçek zamanlı ağ paketleriyle çalışmak için aşağıdaki iyileştirmeler önerilmektedir:
+
+- Veri Ön İşleme: Farklı ağ veri kümelerinde özellik isimleri ve formatları değişebilir. Modelin esnekliğini artırmak için otomatik özellik seçimi ve daha gelişmiş kategorik kodlama yöntemleri (ör. One-Hot Encoding) eklenmelidir.
+- Gerçek Zamanlı Paketler: Model, ham ağ paketleriyle çalışacaksa, paketlerin gerçek zamanlı olarak yakalanması ve ön işlenmesi için ek modüller gereklidir. Özellikle, paket uzunluğu, zaman damgası ve protokol gibi alanların eksiksiz ve doğru şekilde çıkarılması sağlanmalıdır.
+- Sınıf Dengesizliği: Gerçek ağ trafiğinde saldırı örnekleri genellikle azınlıktadır. Bu nedenle, dengesiz veri setleri için ağırlıklı kayıp fonksiyonları veya örnekleme teknikleri (SMOTE, Random Under/Over Sampling) kullanılabilir.
+- Modelin Genelleştirilmesi: Modelin farklı ağ ortamlarında da yüksek performans göstermesi için çapraz doğrulama ve farklı veri setleriyle test edilmesi önerilir.
+- Özellik Mühendisliği: Paket başlıklarından ve yüklerinden daha fazla özellik çıkarılarak modelin başarımı artırılabilir.
+
+Bu önerilerle modelin hem farklı veri kümelerine hem de gerçek zamanlı ağ trafiğine daha iyi uyum sağlaması beklenmektedir. 

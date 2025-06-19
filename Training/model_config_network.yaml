@@ -1,12 +1,12 @@
-# RawNet model configuration for WUSTL-EHMS network packet anomaly detection
+# RawNet model configuration for CIC-IoMT network packet anomaly detection
 
 # Training parameters
 optimizer: 'adam'
 lr: 0.0001
 weight_decay: 0.0001
-nb_epochs: 50
-batch_size: 256
-early_stopping: 10
+nb_epochs: 10
+batch_size: 2000
+early_stopping: 5
 
 # Model architecture
 in_channels: 1
@@ -15,7 +15,7 @@ filts: [[64, 64], [128, 128], [256, 256]]
 gru_node: 512
 nb_gru_layer: 2
 nb_fc_node: 512
-nb_classes: 5  # Number of attack categories (ARP Spoofing, DoS Attack, Nmap Port Scan, No Attack, Smurf Attack)
+nb_classes: 6  # 6 classes: Benign, DDoS, DoS, MQTT, Recon, Spoofing
 
 # Data parameters
 max_packet_length: 1500  # Maximum Ethernet packet size
